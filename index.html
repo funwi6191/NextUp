@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#2D4354">
+  <meta name="description" content="Next Up helps students see what to do next and catch up on missed classes.">
+  <title>Next Up — Your school day, made clearer</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+  <section id="authScreen" class="auth-screen" aria-labelledby="authTitle">
+    <div class="auth-card">
+      <div class="auth-brand"><span class="brand-mark" aria-hidden="true">N</span>
+        <div><strong>Next Up</strong><small>Student planner</small></div>
+      </div>
+      <p class="eyebrow">YOUR STUDY SPACE</p>
+      <h1 id="authTitle">Welcome back</h1>
+      <p class="muted">Sign in to continue to your planner.</p>
+
+      <div class="auth-notice" role="note">
+        <strong>Local demo access only</strong>
+        <span>This demo sign-in is not secure authentication. Planner data stays in this browser and is not private.</span>
+        <span>Demo account: <b>John</b> · <b>John123</b></span>
+      </div>
+
+      <div class="auth-tabs" role="tablist" aria-label="Account options">
+        <button id="loginTab" class="primary" type="button" role="tab" aria-selected="true">Sign in</button>
+        <button id="registerTab" class="secondary" type="button" role="tab" aria-selected="false">Register</button>
+      </div>
+      <form id="loginForm" class="auth-form">
+        <label>Username<input name="username" autocomplete="username" value="John" required maxlength="40"></label>
+        <label>Password<input name="password" type="password" autocomplete="current-password" value="John123"
+            required></label>
+        <button class="primary" type="submit">Sign in</button>
+      </form>
+      <form id="registerForm" class="auth-form" hidden>
+        <label>Choose a username<input name="username" autocomplete="username" required minlength="3"
+            maxlength="40"></label>
+        <label>Create a password<input name="password" type="password" autocomplete="new-password" required
+            minlength="8"></label>
+        <button class="primary" type="submit">Create local demo account</button>
+      </form>
+      <p id="authMessage" class="auth-message" role="status" aria-live="polite"></p>
+    </div>
+  </section>
+  <a class="skip-link" href="#main">Skip to main content</a>
+
+  <nav class="main-nav" aria-label="Main navigation">
+    <div class="brand sidebar-brand"><span class="brand-mark" aria-hidden="true">N</span>
+      <div><strong>Next Up</strong><small data-i18n="tagline">Know what to do next.</small></div>
+    </div>
+    <span id="accountName" class="account-name"></span>
+    <p class="sidebar-section-label">YOUR SPACE</p>
+    <a href="#feed" class="nav-link active" aria-current="page"><span class="nav-icon" aria-hidden="true">☑</span><span
+        data-i18n="navFeed">Next Up</span></a>
+    <a href="#calendar" class="nav-link"><span class="nav-icon" aria-hidden="true">▦</span><span
+        data-i18n="navCalendar">Calendar</span></a>
+    <a href="#catchup" class="nav-link"><span class="nav-icon" aria-hidden="true">↺</span><span
+        data-i18n="navCatchup">Catch-up</span></a>
+    <a href="#study" class="nav-link"><span class="nav-icon" aria-hidden="true">◷</span><span
+        data-i18n="navStudy">Study tools</span></a>
+    <a href="#settings" class="nav-link"><span class="nav-icon" aria-hidden="true">⚙</span><span
+        data-i18n="navSettings">Settings</span></a>
+    <div class="sidebar-spacer" aria-hidden="true"></div>
+    <div class="sidebar-actions" aria-label="Account and app actions">
+      <button class="icon-button secondary" id="assistantOpen" type="button" aria-label="Open AI study assistant"
+        aria-haspopup="dialog">✨ <span
+          class="button-label">AI assistant</span></button>
+      <button class="icon-button" id="installBtn" type="button" hidden>Install app</button>
+      <button class="secondary" id="signOut" type="button">Sign out</button>
+    </div>
+  </nav>
+
+  <main id="main">
+    <section class="welcome panel" aria-labelledby="welcomeTitle">
+      <div>
+        <p class="eyebrow" id="todayLabel">YOUR DAY</p>
+        <h1 id="welcomeTitle">One step at a time.</h1>
+        <p class="muted">Your next tasks and the classes you may have missed, all in one place.</p>
+      </div>
+      <div class="welcome-stats" aria-label="Task summary">
+        <div><strong id="openCount">0</strong><span>To do</span></div>
+        <div><strong id="doneCount">0</strong><span>Finished</span></div>
+      </div>
+    </section>
+
+    <section id="feed" class="section" aria-labelledby="feedTitle">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">YOUR PRIORITY LIST</p>
+          <h2 id="feedTitle">Next Up</h2>
+          <p class="muted">The most important things, first.</p>
+        </div><button class="primary" id="addTaskBtn" type="button">＋ Add task</button>
+      </div>
+      <div id="reminderBanner" class="notice" role="status" aria-live="polite" hidden></div>
+      <div class="feed-tools"><label class="check-label"><input type="checkbox" id="showAll"> Show all
+          tasks</label><label>Subject <select id="subjectFilter">
+            <option value="">All subjects</option>
+          </select></label></div>
+      <div id="taskList" class="task-list" aria-live="polite">
+        <p class="muted">Loading your tasks…</p>
+      </div>
+    </section>
+
+    <section id="calendar" class="section panel" aria-labelledby="calendarTitle">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">PLAN AHEAD</p>
+          <h2 id="calendarTitle">This week</h2>
+          <p class="muted">Classes, tasks and deadlines in one view.</p>
+        </div><button class="secondary" id="printBtn" type="button">Print planner</button>
+      </div>
+      <div class="calendar-controls"><button class="secondary" id="prevWeek"
+          aria-label="Previous week">←</button><strong id="weekRange"></strong><button class="secondary" id="nextWeek"
+          aria-label="Next week">→</button></div>
+      <div id="weekCalendar" class="week-calendar" aria-label="Weekly calendar"></div>
+    </section>
+
+    <section id="catchup" class="section" aria-labelledby="catchupTitle">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">NO ONE LEFT BEHIND</p>
+          <h2 id="catchupTitle">Catch-up packs</h2>
+          <p class="muted">Missed a class? Make a simple plan to get back on track.</p>
+        </div><button class="primary" id="missedClassBtn" type="button">＋ Log missed class</button>
+      </div>
+      <div id="catchupList" class="catchup-list"></div>
+    </section>
+
+    <section id="study" class="section panel" aria-labelledby="studyTitle">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">MAKE A LITTLE PROGRESS</p>
+          <h2 id="studyTitle">Study tools</h2>
+        </div>
+      </div>
+      <div class="study-grid">
+        <article class="tool-card">
+          <h3>Focus timer</h3>
+          <p class="muted">Work for 25 minutes, then take a 5-minute break.</p>
+          <div id="timerClock" class="timer-clock" role="timer" aria-live="off" aria-label="25 minutes remaining">
+            <span class="timer-minute-ticks" aria-hidden="true"></span>
+            <span class="clock-number clock-number-12" aria-hidden="true">12</span>
+            <span class="clock-number clock-number-3" aria-hidden="true">3</span>
+            <span class="clock-number clock-number-6" aria-hidden="true">6</span>
+            <span class="clock-number clock-number-9" aria-hidden="true">9</span>
+            <span class="timer-hand" aria-hidden="true"></span>
+            <span class="timer-pin" aria-hidden="true"></span>
+            <span id="timerDisplay" class="timer" aria-hidden="true">25:00</span>
+          </div>
+          <div class="button-row timer-controls"><button class="primary" id="timerStart">Start</button><button
+              class="secondary" id="timerPause">Pause</button><button class="secondary" id="timerReset">Reset</button>
+          </div><label class="inline-label">Minutes <input id="focusMinutes" type="number" min="1" max="90"
+              value="25"></label>
+        </article>
+        <article class="tool-card">
+          <h3>Quick study plan</h3>
+          <form id="plannerForm"><label>What will you work on?<input name="plan" maxlength="120" required
+                placeholder="e.g. Revise algebra"></label><label>How long? <span class="duration-field"><select
+                  name="duration">
+                  <option>15</option>
+                  <option selected>25</option>
+                  <option>45</option>
+                  <option>60</option>
+                </select><span>minutes</span></span></label><button class="primary" type="submit">Add to plan</button>
+          </form>
+          <ul id="studyPlan" class="simple-list"></ul>
+        </article>
+      </div>
+      <article class="video-card" aria-labelledby="videoTitle">
+        <div class="video-heading">
+          <div>
+            <p class="eyebrow">LEARN BY WATCHING</p>
+            <h3 id="videoTitle">Watch & learn</h3>
+            <p class="muted">Paste a YouTube video link to watch it here while you study.</p>
+          </div>
+        </div>
+        <form id="videoForm" class="video-form">
+          <label for="youtubeUrl">YouTube video link</label>
+          <div class="video-url-row">
+            <input id="youtubeUrl" name="youtubeUrl" type="url" inputmode="url"
+              placeholder="https://www.youtube.com/watch?v=…" autocomplete="url" required>
+            <button class="primary" type="submit">Load video</button>
+            <button class="secondary" id="clearVideo" type="button" hidden>Clear</button>
+          </div>
+        </form>
+        <p id="videoStatus" class="video-status muted" role="status" aria-live="polite">
+          YouTube videos load only after you submit a link. Playback uses YouTube's privacy-enhanced embed.
+        </p>
+        <div id="videoPlayer" class="video-player" hidden>
+          <iframe id="youtubeFrame" title="YouTube study video" loading="lazy"
+            referrerpolicy="strict-origin-when-cross-origin"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowfullscreen></iframe>
+        </div>
+      </article>
+    </section>
+
+    <section class="section panel" aria-labelledby="summaryTitle">
+      <p class="eyebrow">A QUICK LOOK BACK</p>
+      <h2 id="summaryTitle">Your weekly summary</h2>
+      <div id="weeklySummary" class="summary-grid"></div>
+    </section>
+
+    <section class="section panel" aria-labelledby="wellbeingTitle">
+      <p class="eyebrow">CHECK IN WITH YOURSELF</p>
+      <h2 id="wellbeingTitle">How overwhelmed do you feel this week?</h2>
+      <form id="wellbeingForm" class="wellbeing-form"><label for="overwhelm">Choose a number from 1 (not at all) to 5
+          (very overwhelmed).</label>
+        <div class="range-row"><span>1</span><input id="overwhelm" name="overwhelm" type="range" min="1" max="5"
+            value="2"><span>5</span></div><button class="secondary" type="submit">Save check-in</button>
+        <p id="wellbeingMessage" class="muted" aria-live="polite"></p>
+      </form>
+      <div class="contact-links">
+        <h3>Need a hand?</h3>
+        <p class="muted">Add your school's trusted support contacts here.</p><label>Counsellor contact or link<input
+            id="counsellorLink" placeholder="Name, phone or website"></label><label>Tutoring contact or link<input
+            id="tutorLink" placeholder="Name, phone or website"></label><button class="secondary" id="saveContacts">Save
+          contacts</button>
+      </div>
+    </section>
+
+    <section id="settings" class="section panel" aria-labelledby="settingsTitle">
+      <p class="eyebrow">MAKE IT WORK FOR YOU</p>
+      <h2 id="settingsTitle">Settings & accessibility</h2>
+      <div class="settings-grid">
+        <label>Language<select id="language">
+            <option value="en">English</option>
+            <option value="zu">isiZulu</option>
+            <option value="af">Afrikaans</option>
+          </select></label>
+        <label>Text size<select id="textSize">
+            <option value="normal">Normal</option>
+            <option value="large">Large</option>
+            <option value="largest">Extra large</option>
+          </select></label>
+        <label class="check-label"><input id="highContrast" type="checkbox"> High contrast</label>
+        <label class="check-label"><input id="darkMode" type="checkbox"> Dark mode</label>
+        <label class="check-label"><input id="dyslexiaFont" type="checkbox"> Dyslexia-friendly font</label>
+        <label class="check-label"><input id="lowData" type="checkbox"> Low-data mode</label>
+      </div>
+      <div class="settings-grid reminder-settings"><label class="check-label"><input id="notifications" type="checkbox">
+          Enable browser notifications</label><label>Quiet hours start<input id="quietStart" type="time"
+            value="21:00"></label><label>Quiet hours end<input id="quietEnd" type="time"
+            value="07:00"></label><label>Missed-class deadline extension (days)<input id="extensionDays" type="number"
+            min="0" max="30" value="2"></label></div>
+      <div class="button-row wrap"><button class="secondary" id="exportData">Export my backup</button><label
+          class="file-button">Import backup<input id="importData" type="file"
+            accept="application/json,.json"></label><button class="secondary" id="teacherToggle">Teacher mode</button>
+      </div>
+      <div id="teacherPanel" class="teacher-panel" hidden>
+        <h3>Teacher tools</h3>
+        <p class="muted">Create an assignment or class entry, then export it for students to import.</p>
+        <form id="teacherForm" class="form-grid"><label>Type<select name="kind">
+              <option value="task">Assignment</option>
+              <option value="class">Class entry</option>
+            </select></label><label>Title<input name="title" required maxlength="100"></label><label>Subject<input
+              name="subject" required maxlength="50"></label><label>Date<input name="date" type="date"
+              required></label><label>Notes<textarea name="notes" rows="2" maxlength="1000"></textarea></label><button
+            class="primary" type="submit">Add entry</button></form><button class="secondary" id="exportTeacher">Export
+          teacher pack</button>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p>Next Up · Your learning, one step at a time.</p>
+    <p class="muted">Planner data stays on this device unless you export or share it. Assistant messages and selected
+      task details are sent to OpenAI.</p>
+  </footer>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <dialog id="taskDialog" aria-labelledby="taskDialogTitle">
+    <form id="taskForm" method="dialog">
+      <div class="dialog-heading">
+        <h2 id="taskDialogTitle">Add a task</h2><button type="button" class="close-button" data-close="taskDialog"
+          aria-label="Close">×</button>
+      </div><input type="hidden" name="id">
+      <div class="form-grid"><label>Task title<input name="title" required maxlength="100"
+            autocomplete="off"></label><label>Subject<input name="subject" required maxlength="50"></label><label>Due
+          date<input name="dueDate" type="date" required></label><label>Weight<select name="weight">
+            <option value="high">High</option>
+            <option value="medium" selected>Medium</option>
+            <option value="low">Low</option>
+          </select></label><label>Estimated effort<input name="effort" placeholder="e.g. 45 minutes"
+            maxlength="40"></label><label>Status<select name="status">
+            <option value="todo">To do</option>
+            <option value="progress">In progress</option>
+            <option value="done">Done</option>
+          </select></label><label class="full">Notes<textarea name="notes" rows="3"
+            maxlength="2000"></textarea></label><label class="full">Project milestones (one per line: milestone |
+          YYYY-MM-DD)<textarea name="milestones" rows="3"
+            placeholder="Research outline | 2026-11-12&#10;First draft | 2026-11-15"></textarea></label></div>
+      <div class="button-row"><button class="primary" type="submit">Save task</button><button type="button"
+          class="secondary" data-close="taskDialog">Cancel</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="missedDialog" aria-labelledby="missedDialogTitle">
+    <form id="missedForm" method="dialog">
+      <div class="dialog-heading">
+        <h2 id="missedDialogTitle">Log a missed class</h2><button type="button" class="close-button"
+          data-close="missedDialog" aria-label="Close">×</button>
+      </div>
+      <div class="form-grid"><label>Class / topic<input name="title" required
+            maxlength="100"></label><label>Subject<input name="subject" required maxlength="50"></label><label>Date
+          missed<input name="date" type="date" required></label><label>Reason<select name="reason">
+            <option>Illness</option>
+            <option>Transport</option>
+            <option>Family responsibility</option>
+            <option>Other</option>
+          </select></label><label class="full">Summary / what happened<textarea name="summary" rows="3"
+            maxlength="2000"></textarea></label><label class="full">Slides or notes link<input name="links" type="url"
+            placeholder="https://…"></label><label class="full">Homework<textarea name="homework" rows="2"
+            maxlength="1000"></textarea></label><label class="full">Your notes<textarea name="notes" rows="3"
+            maxlength="3000" placeholder="Type or paste your notes here"></textarea><button type="button"
+            class="secondary speech-button" data-dictate="notes">🎙 Dictate notes</button></label><label
+          class="full">Buddy notes<textarea name="buddyNotes" rows="3" maxlength="3000"
+            placeholder="Paste notes shared by a classmate"></textarea></label><label class="full">What you missed (one
+          item per line)<textarea name="checklist" rows="3"
+            placeholder="Read pages 20–25&#10;Ask about the class activity"></textarea></label></div>
+      <div class="button-row"><button class="primary" type="submit">Create catch-up pack</button><button type="button"
+          class="secondary" data-close="missedDialog">Cancel</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="packDialog" aria-labelledby="packTitle">
+    <div class="dialog-heading">
+      <h2 id="packTitle">Catch-up pack</h2><button type="button" class="close-button" data-close="packDialog"
+        aria-label="Close">×</button>
+    </div>
+    <div id="packContent"></div>
+    <div class="button-row"><button class="secondary" id="sharePack">Share via WhatsApp</button><button class="primary"
+        data-close="packDialog">Done</button></div>
+  </dialog>
+
+  <dialog id="assistantDialog" class="assistant-dialog" aria-labelledby="assistantTitle">
+    <div class="dialog-heading">
+      <div>
+        <p class="eyebrow">STUDY SUPPORT</p>
+        <h2 id="assistantTitle">AI study assistant</h2>
+      </div>
+      <button type="button" class="close-button" data-close="assistantDialog" aria-label="Close assistant">×</button>
+    </div>
+    <p class="assistant-privacy">Your message, current timer, and task titles/deadlines are sent to OpenAI through your
+      local server. Avoid sharing sensitive personal information. Voice recognition depends on browser support.</p>
+    <div id="assistantMessages" class="assistant-messages" role="log" aria-live="polite" aria-relevant="additions">
+      <p class="assistant-message assistant-reply">Hi! Ask me for study help, or try a voice command like “start timer”,
+        “pause timer”, “open calendar”, or “read my tasks”.</p>
+    </div>
+    <form id="assistantForm" class="assistant-form">
+      <label for="assistantInput">Your question or command</label>
+      <textarea id="assistantInput" rows="2" maxlength="2000" placeholder="What should I focus on today?"></textarea>
+      <div class="button-row assistant-actions">
+        <button id="assistantVoice" class="secondary" type="button">🎙 Voice command</button>
+        <button class="primary" type="submit">Send</button>
+      </div>
+      <p id="assistantStatus" class="muted" role="status" aria-live="polite"></p>
+    </form>
+  </dialog>
+
+  <script src="app.js" defer></script>
+</body>
+
+</html>

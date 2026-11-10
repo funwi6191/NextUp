@@ -61,10 +61,14 @@ GitHub Pages serves static files only. The planner can be hosted there, but the 
 ## Features included
 
 - Prioritized task feed (top three or all), task status, subject labels, milestone checklists
-- Weekly class/deadline calendar and print stylesheet
+- Searchable task, catch-up and saved-video lists with subject, status and date filters
+- Weekly class/deadline calendar, recurring timetable, iCalendar export and print stylesheet
 - Missed-class catch-up packs, buddy notes, checklists and related-subject deadline extensions
-- In-app deadline notices and optional browser notifications with quiet hours
-- Pomodoro timer, study plan, weekly summary and wellbeing check-in
+- In-app deadline notices and optional browser notifications for tasks and classes, with quiet hours and configurable lead times
+- Configurable focus/break timer cycles, focus-time tracking, optional weekly goals and learning streaks, study plan and wellbeing check-in
+- AI-generated flashcards, quizzes and revision plans from student notes
+- Saved YouTube study videos organized by subject with watched tracking
+- Periodic local-backup reminder
 - Responsive YouTube study-video player that accepts valid YouTube links and loads playback on request
 - Local support-contact fields, WhatsApp sharing, teacher assignment/class creation and JSON export/import
 - Text size, high contrast, dark mode, low-data and dyslexia-friendly system-font options
@@ -74,9 +78,10 @@ GitHub Pages serves static files only. The planner can be hosted there, but the 
 
 ## Limitations and future upgrades
 
-- **Notifications:** browser notifications are best-effort and run when the app is opened; browsers do not guarantee scheduled background delivery. Real SMS, email, push reminders and reliable background scheduling need a backend or push service.
+- **Notifications:** browser notifications are best-effort and run while the app is open; browsers do not guarantee scheduled background delivery. Real SMS, email, push reminders and reliable background scheduling need a backend or push service.
 - **Accounts:** the sign-in/registration UI is a local demo gate only, not authentication or data protection. Real accounts, syncing and shared class data need a secure backend.
 - **AI assistant:** requires a Node.js server, an OpenAI API key configured server-side, internet access and an OpenAI account. The assistant receives the user's message and selected task details.
+- **AI study lab:** sends pasted notes to the configured OpenAI service; review generated content against class materials.
 - **YouTube player:** requires an internet connection and an embeddable YouTube video. Playback uses YouTube's privacy-enhanced embed; YouTube may receive data when playback starts.
 - **Catch-up content:** summaries, links and notes are entered by the student/teacher; the app does not automatically retrieve school LMS content.
 - **Speech:** Web Speech API support and language quality vary by browser and device. Manual typing remains available.

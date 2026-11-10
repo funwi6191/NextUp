@@ -97,10 +97,17 @@
         </div><button class="primary" id="addTaskBtn" type="button">＋ Add task</button>
       </div>
       <div id="reminderBanner" class="notice" role="status" aria-live="polite" hidden></div>
-      <div class="feed-tools"><label class="check-label"><input type="checkbox" id="showAll"> Show all
-          tasks</label><label>Subject <select id="subjectFilter">
+      <div class="feed-tools"><label class="task-search">Search tasks<input id="taskSearch" type="search"
+            placeholder="Search title, subject or notes"></label>
+        <label>Subject <select id="subjectFilter">
             <option value="">All subjects</option>
-          </select></label></div>
+          </select></label><label>Status<select id="statusFilter">
+            <option value="">Any status</option>
+            <option value="todo">To do</option>
+            <option value="progress">In progress</option>
+            <option value="done">Done</option>
+          </select></label><label>Due by<input id="dueByFilter" type="date"></label>
+        <label class="check-label"><input type="checkbox" id="showAll"> Show all tasks</label></div>
       <div id="taskList" class="task-list" aria-live="polite">
         <p class="muted">Loading your tasks…</p>
       </div>
@@ -112,12 +119,30 @@
           <p class="eyebrow">PLAN AHEAD</p>
           <h2 id="calendarTitle">This week</h2>
           <p class="muted">Classes, tasks and deadlines in one view.</p>
-        </div><button class="secondary" id="printBtn" type="button">Print planner</button>
+        </div><div class="button-row"><button class="secondary" id="calendarExport" type="button">Export calendar</button>
+          <button class="secondary" id="printBtn" type="button">Print planner</button></div>
       </div>
       <div class="calendar-controls"><button class="secondary" id="prevWeek"
           aria-label="Previous week">←</button><strong id="weekRange"></strong><button class="secondary" id="nextWeek"
           aria-label="Next week">→</button></div>
       <div id="weekCalendar" class="week-calendar" aria-label="Weekly calendar"></div>
+      <details class="timetable-manager">
+        <summary>Manage weekly timetable</summary>
+        <p class="muted">Add a class once and it will appear on the selected weekday every week.</p>
+        <form id="timetableForm" class="form-grid">
+          <label>Class name<input name="title" required maxlength="100" placeholder="e.g. Mathematics"></label>
+          <label>Subject<input name="subject" required maxlength="50"></label>
+          <label>Day<select name="day" required>
+              <option value="1">Monday</option><option value="2">Tuesday</option><option value="3">Wednesday</option>
+              <option value="4">Thursday</option><option value="5">Friday</option><option value="6">Saturday</option>
+              <option value="0">Sunday</option>
+            </select></label>
+          <label>Start time<input name="time" type="time" required></label>
+          <label>Duration (minutes)<input name="duration" type="number" min="10" max="240" value="60" required></label>
+          <button class="primary" type="submit">Add weekly class</button>
+        </form>
+        <div id="timetableList" class="timetable-list"></div>
+      </details>
     </section>
 
     <section id="catchup" class="section" aria-labelledby="catchupTitle">
@@ -127,6 +152,11 @@
           <h2 id="catchupTitle">Catch-up packs</h2>
           <p class="muted">Missed a class? Make a simple plan to get back on track.</p>
         </div><button class="primary" id="missedClassBtn" type="button">＋ Log missed class</button>
+      </div>
+      <div class="catchup-filters">
+        <label>Search catch-up packs<input id="packSearch" type="search" placeholder="Search title or notes"></label>
+        <label>Subject<select id="packSubjectFilter"><option value="">All subjects</option></select></label>
+        <label>Missed since<input id="packDateFilter" type="date"></label>
       </div>
       <div id="catchupList" class="catchup-list"></div>
     </section>
@@ -141,7 +171,7 @@
       <div class="study-grid">
         <article class="tool-card">
           <h3>Focus timer</h3>
-          <p class="muted">Work for 25 minutes, then take a 5-minute break.</p>
+          <p id="timerPhase" class="muted">Focus session · 25 minutes</p>
           <div id="timerClock" class="timer-clock" role="timer" aria-live="off" aria-label="25 minutes remaining">
             <span class="timer-minute-ticks" aria-hidden="true"></span>
             <span class="clock-number clock-number-12" aria-hidden="true">12</span>
@@ -156,6 +186,9 @@
               class="secondary" id="timerPause">Pause</button><button class="secondary" id="timerReset">Reset</button>
           </div><label class="inline-label">Minutes <input id="focusMinutes" type="number" min="1" max="90"
               value="25"></label>
+          <label class="inline-label">Break <input id="breakMinutes" type="number" min="1" max="30" value="5">
+            <span>minutes</span></label>
+          <p id="focusGoalProgress" class="goal-progress" aria-live="polite"></p>
         </article>
         <article class="tool-card">
           <h3>Quick study plan</h3>
@@ -187,6 +220,11 @@
             <button class="primary" type="submit">Load video</button>
             <button class="secondary" id="clearVideo" type="button" hidden>Clear</button>
           </div>
+          <div class="video-details-row">
+            <label>Video title<input id="videoName" maxlength="100" placeholder="e.g. Quadratic equations revision"></label>
+            <label>Subject<input id="videoSubject" maxlength="50" placeholder="e.g. Mathematics"></label>
+            <button class="secondary" id="saveVideo" type="button" hidden>Save to study list</button>
+          </div>
         </form>
         <p id="videoStatus" class="video-status muted" role="status" aria-live="polite">
           YouTube videos load only after you submit a link. Playback uses YouTube's privacy-enhanced embed.
@@ -197,12 +235,45 @@
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
             allowfullscreen></iframe>
         </div>
+        <div class="saved-videos-heading">
+          <h4>My study videos</h4>
+          <label>Search videos<input id="videoSearch" type="search" placeholder="Search saved videos"></label>
+          <label>Filter by subject<select id="videoSubjectFilter"><option value="">All subjects</option></select></label>
+          <label>Watch status<select id="videoStatusFilter">
+              <option value="">Any status</option><option value="unwatched">Not watched</option><option value="watched">Watched</option>
+            </select></label>
+          <label>Saved since<input id="videoDateFilter" type="date"></label>
+        </div>
+        <div id="savedVideoList" class="saved-video-list"></div>
+      </article>
+      <article class="tool-card study-lab" aria-labelledby="studyLabTitle">
+        <p class="eyebrow">PRACTISE WHAT YOU LEARN</p>
+        <h3 id="studyLabTitle">AI study lab</h3>
+        <p class="muted">Turn your notes into revision material with the AI assistant.</p>
+        <p class="assistant-privacy">Your notes are sent to OpenAI through the planner server to generate this material. Avoid personal or sensitive information.</p>
+        <form id="studyLabForm" class="study-lab-form">
+          <label>Paste your notes<textarea id="studyLabNotes" rows="5" maxlength="6000"
+              placeholder="Paste notes for a topic here. Avoid personal or sensitive information."></textarea></label>
+          <label>Make<select id="studyLabFormat">
+              <option value="flashcards">Flashcards</option>
+              <option value="quiz">A practice quiz with answers</option>
+              <option value="revision">A short revision plan</option>
+            </select></label>
+          <button class="primary" id="studyLabGenerate" type="submit">Generate with AI</button>
+        </form>
+        <p id="studyLabStatus" class="muted" role="status" aria-live="polite"></p>
+        <div id="studyLabResult" class="study-lab-result" hidden></div>
       </article>
     </section>
 
     <section class="section panel" aria-labelledby="summaryTitle">
       <p class="eyebrow">A QUICK LOOK BACK</p>
       <h2 id="summaryTitle">Your weekly summary</h2>
+      <div id="goalSettingsInline" class="goal-settings-inline">
+        <label class="check-label"><input id="motivationEnabled" type="checkbox"> Show my weekly goal and streak</label>
+        <label>Weekly focus goal (minutes)<input id="weeklyFocusGoal" type="number" min="15" max="1200" step="15"
+            value="150"></label>
+      </div>
       <div id="weeklySummary" class="summary-grid"></div>
     </section>
 
@@ -247,7 +318,14 @@
           Enable browser notifications</label><label>Quiet hours start<input id="quietStart" type="time"
             value="21:00"></label><label>Quiet hours end<input id="quietEnd" type="time"
             value="07:00"></label><label>Missed-class deadline extension (days)<input id="extensionDays" type="number"
-            min="0" max="30" value="2"></label></div>
+            min="0" max="30" value="2"></label><label>Task reminder lead time<select id="taskReminderDays">
+            <option value="0">On the due date</option><option value="1" selected>1 day before</option>
+            <option value="2">2 days before</option><option value="7">1 week before</option>
+          </select></label><label>Class reminder<select id="classReminderMinutes">
+            <option value="0">At class time</option><option value="5" selected>5 minutes before</option>
+            <option value="10">10 minutes before</option><option value="15">15 minutes before</option>
+          </select></label></div>
+      <p id="backupReminder" class="notice backup-reminder" role="status" aria-live="polite" hidden></p>
       <div class="button-row wrap"><button class="secondary" id="exportData">Export my backup</button><label
           class="file-button">Import backup<input id="importData" type="file"
             accept="application/json,.json"></label><button class="secondary" id="teacherToggle">Teacher mode</button>

@@ -5,13 +5,15 @@
   const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
   const DB_NAME = "next-up-db", DB_VERSION = 1, STORE = "app";
   const AUTH_STORAGE_KEY = "nextUpDemoAccounts", AUTH_SESSION_KEY = "nextUpDemoUser", AUTH_ITERATIONS = 120000;
-  const todayISO = () => new Date().toISOString().slice(0,10);
+  const localISO = date => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
+  const todayISO = () => localISO(new Date());
   const uid = () => (crypto.randomUUID ? crypto.randomUUID() : `id-${Date.now()}-${Math.random().toString(16).slice(2)}`);
   const safe = value => String(value ?? "").trim();
-  const datePlus = (date, days) => { const d = new Date(`${date}T12:00:00`); d.setDate(d.getDate()+days); return d.toISOString().slice(0,10); };
+  const datePlus = (date, days) => { const d = new Date(`${date}T12:00:00`); d.setDate(d.getDate()+days); return localISO(d); };
   const fmtDate = date => date ? new Date(`${date}T12:00:00`).toLocaleDateString(undefined,{day:"numeric",month:"short",year:"numeric"}) : "No date";
-  const state = { tasks:[], packs:[], classes:[], plans:[], settings:{extensionDays:2,quietStart:"21:00",quietEnd:"07:00"}, wellbeing:[], weekOffset:0, showAll:false, filter:"", currentPack:null };
-  let db = null, timerSeconds = 1500, timerDuration = 1500, timerInterval = null, installPrompt = null;
+  const DEFAULT_SETTINGS={extensionDays:2,quietStart:"21:00",quietEnd:"07:00",taskReminderDays:1,classReminderMinutes:5,weeklyFocusGoal:150,motivationEnabled:false,focusMinutes:25,breakMinutes:5};
+  const state = { tasks:[], packs:[], classes:[], plans:[], videos:[], focusLogs:[], settings:{...DEFAULT_SETTINGS}, wellbeing:[], weekOffset:0, showAll:false, filter:"", taskSearch:"", taskStatus:"", dueBy:"", currentPack:null, lastBackupAt:null };
+  let db = null, timerSeconds = 1500, timerDuration = 1500, timerInterval = null, timerIsBreak = false, focusSessionMinutes = 0, loadedVideo = null, installPrompt = null;
 
   // IndexedDB primary storage; localStorage is a resilient fallback.
   function openDB() {
@@ -35,6 +37,13 @@
       try { const saved = localStorage.getItem("nextUpState"); if (saved) Object.assign(state, JSON.parse(saved)); }
       catch (_) { toast("Storage could not be opened. You can still use this tab; export a backup when possible."); }
     }
+    state.tasks=Array.isArray(state.tasks)?state.tasks:[];
+    state.packs=Array.isArray(state.packs)?state.packs:[];
+    state.classes=Array.isArray(state.classes)?state.classes:[];
+    state.plans=Array.isArray(state.plans)?state.plans:[];
+    state.videos=Array.isArray(state.videos)?state.videos:[];
+    state.focusLogs=Array.isArray(state.focusLogs)?state.focusLogs:[];
+    state.settings={...DEFAULT_SETTINGS,...(state.settings||{})};
     if (!state.tasks.length && !state.packs.length && !state.classes.length) seedData();
     await saveState();
   }
@@ -122,14 +131,15 @@
   }
   function renderTasks() {
     const filter=state.filter;
-    let tasks=state.tasks.filter(t=>(!filter||t.subject===filter)).sort(priority);
-    if(!state.showAll) tasks=tasks.filter(t=>t.status!=="done").slice(0,3);
+    const query=state.taskSearch.toLowerCase();
+    let tasks=state.tasks.filter(t=>(!filter||t.subject===filter)&&(!state.taskStatus||t.status===state.taskStatus)&&(!state.dueBy||!t.dueDate||t.dueDate<=state.dueBy)&&(!query||`${t.title} ${t.subject} ${t.notes||""}`.toLowerCase().includes(query))).sort(priority);
+    if(!state.showAll&&state.taskStatus!=="done") tasks=tasks.filter(t=>t.status!=="done").slice(0,3);
     const list=$("#taskList");
     if(!tasks.length){
       const empty=state.tasks.length===0
         ?{icon:"✦",title:"Start with one small step",message:"Add a task and Next Up will help you keep it in view.",action:"add-task",label:"Add your first task"}
-        :filter
-          ?{icon:"⌕",title:"No tasks for this subject",message:"Try another subject or clear the filter to see more.",action:"clear-filter",label:"Clear subject filter"}
+        :filter||state.taskSearch||state.taskStatus||state.dueBy
+          ?{icon:"⌕",title:"No matching tasks",message:"Try adjusting your search or filters to see more tasks.",action:"clear-filter",label:"Clear filters"}
           :{icon:"✓",title:"You're all caught up",message:"Nice work. You can review completed tasks whenever you like.",action:"show-all",label:"Show completed tasks"};
       list.innerHTML=`<div class="empty-state" aria-live="polite"><span class="empty-state-icon" aria-hidden="true">${empty.icon}</span><h3>${empty.title}</h3><p>${empty.message}</p><button class="secondary" type="button" data-empty-action="${empty.action}">${empty.label}</button></div>`;
       return;
@@ -139,7 +149,7 @@
       <label class="inline-label">Status <select data-status="${t.id}" aria-label="Status for ${escapeHTML(t.title)}"><option value="todo" ${t.status==="todo"?"selected":""}>To do</option><option value="progress" ${t.status==="progress"?"selected":""}>In progress</option><option value="done" ${t.status==="done"?"selected":""}>Done</option></select></label></div>
       ${t.notes?`<p>${escapeHTML(t.notes)}</p>`:""}${t.milestones?.length?`<details><summary>Project milestones (${t.milestones.filter(m=>m.done).length}/${t.milestones.length} complete)</summary><ul class="milestones">${t.milestones.map((m,i)=>`<li><label class="check-label"><input type="checkbox" data-milestone="${t.id}" data-index="${i}" ${m.done?"checked":""}> ${escapeHTML(m.title)} — ${fmtDate(m.date)}</label></li>`).join("")}</ul></details>`:""}
       <div class="task-actions"><button class="secondary" data-edit="${t.id}">Edit</button><button class="secondary" data-speak="${t.id}">Read aloud</button><button class="secondary" data-share="${t.id}">Share via WhatsApp</button></div></article>`).join("");
-    $$("[data-status]",list).forEach(el=>el.addEventListener("change",()=>{const t=state.tasks.find(x=>x.id===el.dataset.status);if(t){t.status=el.value;saveState().then(renderAll);toast("Task updated.");}}));
+    $$("[data-status]",list).forEach(el=>el.addEventListener("change",()=>{const t=state.tasks.find(x=>x.id===el.dataset.status);if(t){t.status=el.value;t.completedAt=el.value==="done"?todayISO():"";saveState().then(renderAll);toast(el.value==="done"&&state.settings.motivationEnabled?"Task completed. Great work!":"Task updated.");}}));
     $$("[data-edit]",list).forEach(el=>el.addEventListener("click",()=>editTask(el.dataset.edit)));
     $$("[data-speak]",list).forEach(el=>el.addEventListener("click",()=>speakTask(el.dataset.speak)));
     $$("[data-share]",list).forEach(el=>el.addEventListener("click",()=>shareTask(el.dataset.share)));
@@ -149,30 +159,99 @@
     const subjects=[...new Set(state.tasks.map(t=>t.subject))].sort(), select=$("#subjectFilter"), old=state.filter;
     select.innerHTML='<option value="">All subjects</option>'+subjects.map(s=>`<option>${escapeHTML(s)}</option>`).join("");
     select.value=subjects.includes(old)?old:""; state.filter=select.value;
+    $("#taskSearch").value=state.taskSearch;
+    $("#statusFilter").value=state.taskStatus;
+    $("#dueByFilter").value=state.dueBy;
   }
   function renderCalendar() {
     const start=new Date(); start.setHours(12,0,0,0); start.setDate(start.getDate()-((start.getDay()+6)%7)+state.weekOffset*7);
     const days=Array.from({length:7},(_,i)=>{const d=new Date(start);d.setDate(start.getDate()+i);return d;});
     $("#weekRange").textContent=`${days[0].toLocaleDateString(undefined,{day:"numeric",month:"short"})} – ${days[6].toLocaleDateString(undefined,{day:"numeric",month:"short",year:"numeric"})}`;
     $("#weekCalendar").innerHTML=days.map(d=>{
-      const iso=d.toISOString().slice(0,10), entries=[
-        ...state.classes.filter(c=>c.date===iso).map(c=>({title:c.title,kind:"Class",time:c.time||""})),
+      const iso=localISO(d), entries=[
+        ...state.classes.filter(c=>c.date===iso||c.recurring&&c.daysOfWeek?.includes(d.getDay())).map(c=>({title:c.title,kind:"Class",time:c.time||"",duration:c.duration})),
         ...state.tasks.filter(t=>t.dueDate===iso).map(t=>({title:t.title,kind:"Due",time:""}))
       ];
       return `<div class="day-column ${iso===todayISO()?"today":""}"><div class="day-name">${d.toLocaleDateString(undefined,{weekday:"short"})}</div><div class="day-date">${d.toLocaleDateString(undefined,{day:"numeric",month:"short"})}</div>${entries.map(e=>`<div class="calendar-item"><b>${e.kind}</b>${escapeHTML(e.time?e.time+" · ":"")}${escapeHTML(e.title)}</div>`).join("")||'<span class="muted">—</span>'}</div>`;
     }).join("");
   }
+  function renderTimetable(){
+    const recurring=state.classes.filter(item=>item.recurring);
+    $("#timetableList").innerHTML=recurring.length?recurring.map(item=>`<div class="timetable-item"><span><strong>${escapeHTML(item.title)}</strong><small>${escapeHTML(item.subject)} · ${["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][item.daysOfWeek[0]]} · ${escapeHTML(item.time)}</small></span><button class="secondary" type="button" data-delete-class="${item.id}" aria-label="Remove ${escapeHTML(item.title)} from weekly timetable">Remove</button></div>`).join(""):'<p class="muted">No weekly classes yet.</p>';
+    $$("[data-delete-class]").forEach(button=>button.addEventListener("click",async()=>{state.classes=state.classes.filter(item=>item.id!==button.dataset.deleteClass);await saveState();renderAll();}));
+  }
+  function escapeICal(value){return String(value??"").replace(/\\/g,"\\\\").replace(/\r?\n/g,"\\n").replace(/,/g,"\\,").replace(/;/g,"\\;");}
+  function downloadText(content,name,type){
+    const blob=new Blob([content],{type}),url=URL.createObjectURL(blob),link=document.createElement("a");
+    link.href=url;link.download=name;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }
+  function exportCalendar(){
+    const events=[],start=new Date();start.setHours(0,0,0,0);
+    const end=new Date(start);end.setDate(end.getDate()+91);
+    state.tasks.filter(task=>task.status!=="done"&&task.dueDate>=localISO(start)&&task.dueDate<localISO(end)).forEach(task=>events.push({uid:`${task.id}@next-up`,date:task.dueDate,title:task.title,description:`${task.subject} · ${task.weight} priority`}));
+    state.classes.forEach(item=>{
+      if(item.recurring){
+        const weekdays=Array.isArray(item.daysOfWeek)?item.daysOfWeek:[];
+        for(let date=new Date(start);date<end;date.setDate(date.getDate()+1)){
+          if(weekdays.includes(date.getDay()))events.push({uid:`${item.id}-${localISO(date)}@next-up`,date:localISO(date),time:item.time,title:item.title,description:item.subject,duration:item.duration});
+        }
+      }else if(item.date>=localISO(start)&&item.date<localISO(end)&&item.kind!=="missed"){
+        events.push({uid:`${item.id}@next-up`,date:item.date,time:item.time,title:item.title,description:item.subject,duration:item.duration});
+      }
+    });
+    const stamp=date=>date.replaceAll("-","");
+    const calendar=["BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//Next Up//Student Planner//EN","CALSCALE:GREGORIAN","METHOD:PUBLISH"];
+    events.forEach(event=>{
+      calendar.push("BEGIN:VEVENT",`UID:${event.uid}`,`SUMMARY:${escapeICal(event.title)}`,`DESCRIPTION:${escapeICal(event.description)}`);
+      if(event.time){
+        const startDate=new Date(`${event.date}T${event.time}:00`),finishDate=new Date(startDate);
+        finishDate.setMinutes(finishDate.getMinutes()+(Number(event.duration)||60));
+        const localStamp=date=>`${stamp(localISO(date))}T${String(date.getHours()).padStart(2,"0")}${String(date.getMinutes()).padStart(2,"0")}00`;
+        calendar.push(`DTSTART:${localStamp(startDate)}`,`DTEND:${localStamp(finishDate)}`);
+      }else calendar.push(`DTSTART;VALUE=DATE:${stamp(event.date)}`,`DTEND;VALUE=DATE:${stamp(datePlus(event.date,1))}`);
+      calendar.push("END:VEVENT");
+    });
+    calendar.push("END:VCALENDAR");
+    downloadText(calendar.join("\r\n"),"next-up-calendar.ics","text/calendar;charset=utf-8");
+    toast(`Calendar export ready with ${events.length} upcoming item${events.length===1?"":"s"}.`);
+  }
+  $("#timetableForm").addEventListener("submit",async event=>{
+    event.preventDefault();
+    const form=event.currentTarget,data=new FormData(form),title=safe(data.get("title")),subject=safe(data.get("subject")),day=Number(data.get("day")),time=safe(data.get("time")),duration=Math.max(10,Math.min(240,Number(data.get("duration"))||60));
+    if(!title||!subject||!Number.isInteger(day)||!time){toast("Add a class name, subject, weekday and time.");return;}
+    if(state.classes.some(item=>item.recurring&&item.daysOfWeek?.includes(day)&&item.time===time&&item.title.toLowerCase()===title.toLowerCase())){toast("That weekly class is already on your timetable.");return;}
+    state.classes.push({id:uid(),title,subject,time,duration,kind:"class",recurring:true,daysOfWeek:[day]});
+    await saveState();form.reset();form.elements.duration.value="60";renderCalendar();renderTimetable();toast("Weekly class added.");
+  });
+  $("#calendarExport").addEventListener("click",exportCalendar);
   function renderPacks() {
-    $("#catchupList").innerHTML=state.packs.length?state.packs.slice().reverse().map(p=>`<article class="pack-card"><div><h3>${escapeHTML(p.title)}</h3><p class="muted">${escapeHTML(p.subject)} · Missed ${fmtDate(p.date)} · ${escapeHTML(p.reason)}</p><p>${escapeHTML(p.summary||"No summary added yet.")}</p></div><div class="button-row"><button class="secondary" data-openpack="${p.id}">Open pack</button><button class="secondary" data-sharepack="${p.id}">Share</button></div></article>`).join(""):'<div class="empty-state" aria-live="polite"><span class="empty-state-icon" aria-hidden="true">↺</span><h3>Your catch-up space is ready</h3><p>Log a missed class to turn it into a clear, manageable plan.</p><button class="secondary" type="button" data-empty-action="missed-class">Log a missed class</button></div>';
+    const subjectFilter=$("#packSubjectFilter"),selected=subjectFilter.value,subjects=[...new Set(state.packs.map(pack=>pack.subject))].sort();
+    subjectFilter.innerHTML='<option value="">All subjects</option>'+subjects.map(subject=>`<option value="${escapeHTML(subject)}">${escapeHTML(subject)}</option>`).join("");
+    subjectFilter.value=subjects.includes(selected)?selected:"";
+    const query=$("#packSearch").value.trim().toLowerCase(),since=$("#packDateFilter").value;
+    const packs=state.packs.filter(p=>(!query||`${p.title} ${p.subject} ${p.summary||""} ${p.notes||""}`.toLowerCase().includes(query))&&(!subjectFilter.value||p.subject===subjectFilter.value)&&(!since||p.date>=since));
+    $("#catchupList").innerHTML=packs.length?packs.slice().reverse().map(p=>`<article class="pack-card"><div><h3>${escapeHTML(p.title)}</h3><p class="muted">${escapeHTML(p.subject)} · Missed ${fmtDate(p.date)} · ${escapeHTML(p.reason)}</p><p>${escapeHTML(p.summary||"No summary added yet.")}</p></div><div class="button-row"><button class="secondary" data-openpack="${p.id}">Open pack</button><button class="secondary" data-sharepack="${p.id}">Share</button></div></article>`).join(""):query?'<p class="muted">No matching catch-up packs.</p>':'<div class="empty-state" aria-live="polite"><span class="empty-state-icon" aria-hidden="true">↺</span><h3>Your catch-up space is ready</h3><p>Log a missed class to turn it into a clear, manageable plan.</p><button class="secondary" type="button" data-empty-action="missed-class">Log a missed class</button></div>';
     $$("[data-openpack]").forEach(b=>b.addEventListener("click",()=>openPack(b.dataset.openpack)));
     $$("[data-sharepack]").forEach(b=>b.addEventListener("click",()=>sharePack(b.dataset.sharepack)));
   }
   function renderSummary() {
-    const since=datePlus(todayISO(),-6), done=state.tasks.filter(t=>t.status==="done").length, upcoming=state.tasks.filter(t=>t.status!=="done"&&t.dueDate>=todayISO()).sort(priority).slice(0,3);
-    $("#weeklySummary").innerHTML=`<div class="summary-stat"><strong>${done}</strong><span>Tasks finished</span></div><div class="summary-stat"><strong>${state.packs.length}</strong><span>Catch-up packs</span></div><div class="summary-stat"><strong>${state.tasks.filter(t=>t.status!=="done"&&t.dueDate>=todayISO()).length}</strong><span>Still coming up</span></div><div class="summary-stat" style="grid-column:1/-1"><b>Coming next</b><ul>${upcoming.map(t=>`<li>${escapeHTML(t.title)} — ${fmtDate(t.dueDate)}</li>`).join("")||"<li>Nothing due soon. Take a breath.</li>"}</ul></div>`;
+    const weekStart=new Date();weekStart.setHours(0,0,0,0);weekStart.setDate(weekStart.getDate()-((weekStart.getDay()+6)%7));const weekStartISO=localISO(weekStart);
+    const completed=state.tasks.filter(t=>t.status==="done"&&t.completedAt&&t.completedAt>=weekStartISO).length;
+    const focusMinutes=state.focusLogs.filter(log=>log.date>=weekStartISO).reduce((sum,log)=>sum+(Number(log.minutes)||0),0);
+    const goal=Math.max(15,Number(state.settings.weeklyFocusGoal)||150),upcoming=state.tasks.filter(t=>t.status!=="done"&&t.dueDate>=todayISO()).sort(priority).slice(0,3);
+    const activeDays=new Set([...state.focusLogs.filter(log=>log.minutes>0).map(log=>log.date),...state.tasks.filter(t=>t.status==="done"&&t.completedAt).map(t=>t.completedAt)]);let streak=0,day=new Date();day.setHours(12,0,0,0);
+    if(!activeDays.has(localISO(day)))day.setDate(day.getDate()-1);
+    while(activeDays.has(localISO(day))){streak++;day.setDate(day.getDate()-1);}
+    $("#weeklySummary").innerHTML=`<div class="summary-stat"><strong>${completed}</strong><span>Tasks completed this week</span></div><div class="summary-stat"><strong>${focusMinutes}</strong><span>Focus minutes this week</span></div><div class="summary-stat"><strong>${state.videos.filter(video=>video.watched).length}/${state.videos.length}</strong><span>Study videos watched</span></div>${state.settings.motivationEnabled?`<div class="summary-stat goal-stat"><div><strong>${Math.min(100,Math.round(focusMinutes/goal*100))}%</strong><span>Weekly focus goal · ${focusMinutes}/${goal} min</span></div><progress max="${goal}" value="${Math.min(focusMinutes,goal)}" aria-label="Weekly focus goal progress"></progress><p>${streak?`You're on a ${streak}-day learning streak. Keep it gentle and celebrate every step.`:"Your streak starts whenever you're ready. Every small session counts."}</p></div>`:""}<div class="summary-stat coming-next"><b>Coming next</b><ul>${upcoming.map(t=>`<li>${escapeHTML(t.title)} — ${fmtDate(t.dueDate)}</li>`).join("")||"<li>Nothing due soon. Take a breath.</li>"}</ul></div>`;
   }
   function renderStats() { $("#openCount").textContent=state.tasks.filter(t=>t.status!=="done").length; $("#doneCount").textContent=state.tasks.filter(t=>t.status==="done").length; }
-  function renderAll(){renderFilters();renderTasks();renderCalendar();renderPacks();renderSummary();renderStats();renderReminders();}
+  function renderAll(){renderFilters();renderTasks();renderCalendar();renderTimetable();renderPacks();renderVideoList();renderSummary();renderStats();renderReminders();renderBackupReminder();}
+  function renderBackupReminder(){
+    const last=state.lastBackupAt?new Date(state.lastBackupAt):null;
+    const overdue=!last||Date.now()-last.getTime()>14*86400000;
+    $("#backupReminder").hidden=!overdue;
+    $("#backupReminder").textContent=last?"It has been over two weeks since your last backup. Export a copy to keep your planner data safe.":"Keep your planner data safe by exporting a backup and storing it somewhere you trust.";
+  }
   function renderReminders() {
     const due=state.tasks.filter(t=>t.status!=="done"&&t.dueDate).sort(priority), overdue=due.filter(t=>t.dueDate<todayISO()), soon=due.filter(t=>t.dueDate>=todayISO()&&t.dueDate<=datePlus(todayISO(),2));
     const notes=[]; if(overdue.length)notes.push(`${overdue.length} overdue task${overdue.length>1?"s":""}. Start with: ${overdue[0].title}.`); if(soon.length)notes.push(`${soon.length} task${soon.length>1?"s":""} due in the next two days.`);
@@ -193,7 +272,7 @@
     const action=event.target.closest("[data-empty-action]")?.dataset.emptyAction;
     if(action==="add-task")$("#addTaskBtn").click();
     if(action==="missed-class")$("#missedClassBtn").click();
-    if(action==="clear-filter"){state.filter="";$("#subjectFilter").value="";renderTasks();}
+    if(action==="clear-filter"){state.filter="";state.taskSearch="";state.taskStatus="";state.dueBy="";$("#subjectFilter").value="";$("#taskSearch").value="";$("#statusFilter").value="";$("#dueByFilter").value="";renderTasks();}
     if(action==="show-all"){state.showAll=true;$("#showAll").checked=true;renderTasks();}
   });
   $("#taskForm").addEventListener("submit",async e=>{
@@ -201,7 +280,7 @@
     if(!title||!subject||!dueDate){toast("Please complete the title, subject and due date.");return;}
     let milestones;try{milestones=parseMilestones(fd.get("milestones")||"");}catch(err){toast(err.message);return;}
     const id=fd.get("id"), old=state.tasks.find(t=>t.id===id);
-    const task={id:id||uid(),title,subject,dueDate,weight:fd.get("weight"),effort:safe(fd.get("effort")),status:fd.get("status"),notes:safe(fd.get("notes")),milestones:milestones.length?milestones:(old?.milestones||[])};
+    const status=fd.get("status"),task={id:id||uid(),title,subject,dueDate,weight:fd.get("weight"),effort:safe(fd.get("effort")),status,completedAt:status==="done"?(old?.completedAt||todayISO()):"",notes:safe(fd.get("notes")),milestones:milestones.length?milestones:(old?.milestones||[])};
     if(old)Object.assign(old,task);else state.tasks.push(task);
     await saveState();closeDialog("taskDialog");renderAll();toast("Task saved.");
   });
@@ -229,6 +308,9 @@
   function sharePack(id){const p=state.packs.find(x=>x.id===id);if(p)shareText(`Catch-up pack: ${p.title}\nSubject: ${p.subject}\nMissed: ${fmtDate(p.date)}\nSummary: ${p.summary}\nHomework: ${p.homework}\nChecklist:\n${p.checklist.map(c=>"• "+c.text).join("\n")}`);}
   $("#sharePack").addEventListener("click",()=>{if(state.currentPack)sharePack(state.currentPack);});
   $("#showAll").addEventListener("change",e=>{state.showAll=e.target.checked;renderTasks();});
+  $("#taskSearch").addEventListener("input",e=>{state.taskSearch=e.target.value.trim();renderTasks();});
+  $("#statusFilter").addEventListener("change",e=>{state.taskStatus=e.target.value;renderTasks();});
+  $("#dueByFilter").addEventListener("change",e=>{state.dueBy=e.target.value;renderTasks();});
   $("#subjectFilter").addEventListener("change",e=>{state.filter=e.target.value;renderTasks();});
   $("#prevWeek").addEventListener("click",()=>{state.weekOffset--;renderCalendar();});
   $("#nextWeek").addEventListener("click",()=>{state.weekOffset++;renderCalendar();});
@@ -286,6 +368,21 @@
     return "";
   }
   $("#assistantOpen").addEventListener("click",()=>showDialog("assistantDialog"));
+  $("#studyLabForm").addEventListener("submit",async event=>{
+    event.preventDefault();
+    const notes=safe($("#studyLabNotes").value),format=$("#studyLabFormat").value,button=$("#studyLabGenerate");
+    if(notes.length<20){$("#studyLabStatus").textContent="Add at least a few lines of notes to make useful study material.";return;}
+    const instructions={flashcards:"Create 6 concise question-and-answer flashcards. Format each as Q: ... then A: ...",quiz:"Create a 5-question practice quiz from the notes, mix question types, and put the answer key at the end.",revision:"Create a realistic 3-day revision plan from the notes, with short timed sessions and retrieval practice."};
+    button.disabled=true;$("#studyLabStatus").textContent="Creating your study material…";$("#studyLabResult").hidden=true;
+    try{
+      const response=await fetch("/api/assistant",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({message:`${instructions[format]}\n\nUse only this student-provided material as the source. If something is unclear, say so instead of inventing facts:\n\n${notes}`})});
+      const result=await response.json().catch(()=>({error:"The assistant server returned an invalid response."}));
+      if(!response.ok)throw new Error(result.error||`Study material request failed (${response.status}).`);
+      if(typeof result.reply!=="string"||!result.reply.trim())throw new Error("The assistant returned no study material.");
+      $("#studyLabResult").textContent=result.reply.trim();$("#studyLabResult").hidden=false;$("#studyLabStatus").textContent="Ready. Check the material against your original notes.";
+    }catch(error){$("#studyLabStatus").textContent=error.message||"Could not create study material. Check the server and try again.";}
+    finally{button.disabled=false;}
+  });
   $("#assistantForm").addEventListener("submit",async e=>{
     e.preventDefault();
     const input=$("#assistantInput"),question=safe(input.value);
@@ -326,12 +423,24 @@
     try{recognition.start();}catch(error){$("#assistantStatus").textContent=`Could not start voice input: ${error.message}`;}
   });
 
-  // Pomodoro timer.
+  // Focus and break cycles; only completed focus sessions count toward weekly progress.
   function showTimer(){const m=Math.floor(timerSeconds/60),s=timerSeconds%60,elapsed=timerDuration-timerSeconds;$("#timerDisplay").textContent=`${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`;$("#timerClock").setAttribute("aria-label",`${m} minute${m===1?"":"s"} and ${s} second${s===1?"":"s"} remaining`);$("#timerClock").style.setProperty("--timer-angle",`${elapsed/timerDuration*360}deg`);$("#timerClock").style.setProperty("--timer-progress",`${elapsed/timerDuration*360}deg`);}
-  $("#timerStart").addEventListener("click",()=>{if(timerInterval)return;timerInterval=setInterval(()=>{timerSeconds=Math.max(0,timerSeconds-1);showTimer();if(!timerSeconds){clearInterval(timerInterval);timerInterval=null;toast("Focus session complete. Take a short break.");}},1000);});
+  function setTimerPhase(){
+    $("#timerPhase").textContent=timerIsBreak?`Break time · ${$("#breakMinutes").value} minutes`:`Focus session · ${$("#focusMinutes").value} minutes`;
+  }
+  $("#timerStart").addEventListener("click",()=>{if(timerInterval)return;if(!timerIsBreak&&timerSeconds===timerDuration)focusSessionMinutes=timerDuration/60;timerInterval=setInterval(async()=>{timerSeconds=Math.max(0,timerSeconds-1);showTimer();if(!timerSeconds){
+    if(timerIsBreak){clearInterval(timerInterval);timerInterval=null;timerIsBreak=false;timerSeconds=Math.max(1,Math.min(90,Number($("#focusMinutes").value)||25))*60;timerDuration=timerSeconds;setTimerPhase();showTimer();toast("Break complete. Start another focus session when you're ready.");}
+    else{state.focusLogs.push({date:todayISO(),minutes:focusSessionMinutes||timerDuration/60});timerIsBreak=true;timerSeconds=Math.max(1,Math.min(30,Number($("#breakMinutes").value)||5))*60;timerDuration=timerSeconds;setTimerPhase();showTimer();await saveState();renderSummary();toast("Focus session complete. Your break has started.");}
+  }},1000);});
   $("#timerPause").addEventListener("click",()=>{clearInterval(timerInterval);timerInterval=null;});
-  $("#timerReset").addEventListener("click",()=>{clearInterval(timerInterval);timerInterval=null;timerSeconds=Math.max(1,Math.min(90,Number($("#focusMinutes").value)||25))*60;timerDuration=timerSeconds;showTimer();});
+  $("#timerReset").addEventListener("click",()=>{clearInterval(timerInterval);timerInterval=null;timerIsBreak=false;timerSeconds=Math.max(1,Math.min(90,Number($("#focusMinutes").value)||25))*60;timerDuration=timerSeconds;setTimerPhase();showTimer();});
   $("#focusMinutes").addEventListener("change",()=>$("#timerReset").click());
+  $("#breakMinutes").addEventListener("change",()=>{if(timerIsBreak)$("#timerReset").click();else setTimerPhase();});
+  function resetTimerFromSettings(){
+    clearInterval(timerInterval);timerInterval=null;timerIsBreak=false;
+    timerSeconds=Math.max(1,Math.min(90,Number($("#focusMinutes").value)||25))*60;timerDuration=timerSeconds;
+    setTimerPhase();showTimer();
+  }
   $("#plannerForm").addEventListener("submit",async e=>{e.preventDefault();const fd=new FormData(e.currentTarget),name=safe(fd.get("plan"));if(!name)return;state.plans.push({id:uid(),name,duration:Number(fd.get("duration")),date:todayISO(),done:false});await saveState();renderPlans();e.currentTarget.reset();});
   function renderPlans(){$("#studyPlan").innerHTML=state.plans.map(p=>`<li>${escapeHTML(p.name)} — ${p.duration} min <label class="check-label"><input type="checkbox" data-plan="${p.id}" ${p.done?"checked":""}> Done</label></li>`).join("");$$("[data-plan]").forEach(c=>c.addEventListener("change",()=>{const p=state.plans.find(x=>x.id===c.dataset.plan);p.done=c.checked;saveState();}));}
   function getYouTubeVideoId(rawUrl){
@@ -348,6 +457,31 @@
     const id=url.pathname==="/watch"?url.searchParams.get("v")||"":["embed","shorts","live"].includes(segments[0])?segments[1]||"":"";
     return /^[A-Za-z0-9_-]{11}$/.test(id)?id:"";
   }
+  function playVideo(rawUrl){
+    const videoId=getYouTubeVideoId(rawUrl);
+    if(!videoId)return false;
+    loadedVideo={id:videoId,url:rawUrl};
+    $("#youtubeUrl").value=rawUrl;
+    $("#youtubeFrame").src=`https://www.youtube-nocookie.com/embed/${videoId}?rel=0`;
+    $("#videoPlayer").hidden=false;
+    $("#clearVideo").hidden=false;
+    $("#saveVideo").hidden=false;
+    $("#videoStatus").textContent="Video ready. YouTube may receive data when playback starts.";
+    return true;
+  }
+  function renderVideoList(){
+    const filter=$("#videoSubjectFilter"),selected=filter.value;
+    const subjects=[...new Set(state.videos.map(video=>video.subject||"Unsorted"))].sort();
+    filter.innerHTML='<option value="">All subjects</option>'+subjects.map(subject=>`<option value="${escapeHTML(subject)}">${escapeHTML(subject)}</option>`).join("");
+    filter.value=subjects.includes(selected)?selected:"";
+    const query=$("#videoSearch").value.trim().toLowerCase();
+    const status=$("#videoStatusFilter").value,since=$("#videoDateFilter").value;
+    const videos=state.videos.filter(video=>(!filter.value||video.subject===filter.value)&&(!query||`${video.title} ${video.subject}`.toLowerCase().includes(query))&&(!status||(status==="watched"?video.watched:!video.watched))&&(!since||String(video.createdAt||"").slice(0,10)>=since));
+    $("#savedVideoList").innerHTML=videos.length?videos.map(video=>`<article class="saved-video"><div><strong>${escapeHTML(video.title)}</strong><small>${escapeHTML(video.subject||"Unsorted")}</small></div><label class="check-label"><input type="checkbox" data-video-watched="${video.id}" ${video.watched?"checked":""}> Watched</label><div class="button-row"><button type="button" class="secondary" data-video-load="${video.id}">Watch</button><button type="button" class="secondary" data-video-delete="${video.id}" aria-label="Remove ${escapeHTML(video.title)}">Remove</button></div></article>`).join(""):query||filter.value?'<p class="muted">No matching saved videos.</p>':'<p class="muted">Save a video to build your subject-by-subject study list.</p>';
+    $$("[data-video-watched]").forEach(input=>input.addEventListener("change",async()=>{const video=state.videos.find(item=>item.id===input.dataset.videoWatched);if(video){video.watched=input.checked;await saveState();renderSummary();}}));
+    $$("[data-video-load]").forEach(button=>button.addEventListener("click",()=>{const video=state.videos.find(item=>item.id===button.dataset.videoLoad);if(video){$("#videoName").value=video.title;$("#videoSubject").value=video.subject;playVideo(video.url);$("#videoPlayer").scrollIntoView({behavior:"smooth",block:"center"});}}));
+    $$("[data-video-delete]").forEach(button=>button.addEventListener("click",async()=>{state.videos=state.videos.filter(video=>video.id!==button.dataset.videoDelete);await saveState();renderVideoList();renderSummary();}));
+  }
   $("#videoForm").addEventListener("submit",event=>{
     event.preventDefault();
     const videoId=getYouTubeVideoId($("#youtubeUrl").value.trim());
@@ -358,17 +492,27 @@
       return;
     }
     $("#youtubeUrl").removeAttribute("aria-invalid");
-    $("#youtubeFrame").src=`https://www.youtube-nocookie.com/embed/${videoId}?rel=0`;
-    $("#videoPlayer").hidden=false;
-    $("#clearVideo").hidden=false;
-    $("#videoStatus").textContent="Video ready. YouTube may receive data when playback starts.";
+    playVideo($("#youtubeUrl").value.trim());
   });
   $("#videoForm").elements.youtubeUrl.addEventListener("input",event=>event.target.removeAttribute("aria-invalid"));
+  $("#saveVideo").addEventListener("click",async()=>{
+    if(!loadedVideo)return;
+    const existing=state.videos.find(video=>video.url===loadedVideo.url);
+    const video={id:existing?.id||uid(),url:loadedVideo.url,title:safe($("#videoName").value)||`YouTube video ${loadedVideo.id}`,subject:safe($("#videoSubject").value)||"Unsorted",watched:existing?.watched||false,createdAt:existing?.createdAt||new Date().toISOString()};
+    if(existing)Object.assign(existing,video);else state.videos.push(video);
+    await saveState();renderVideoList();renderSummary();toast("Video saved to your study list.");
+  });
+  $("#videoSearch").addEventListener("input",renderVideoList);
+  $("#videoSubjectFilter").addEventListener("change",renderVideoList);
+  $("#videoStatusFilter").addEventListener("change",renderVideoList);
+  $("#videoDateFilter").addEventListener("change",renderVideoList);
   $("#clearVideo").addEventListener("click",()=>{
     $("#youtubeFrame").src="";
     $("#videoPlayer").hidden=true;
     $("#clearVideo").hidden=true;
+    $("#saveVideo").hidden=true;
     $("#videoForm").reset();
+    loadedVideo=null;
     $("#videoStatus").textContent="YouTube videos load only after you submit a link. Playback uses YouTube's privacy-enhanced embed.";
     $("#videoForm").elements.youtubeUrl.focus();
   });
@@ -382,31 +526,58 @@
   function applySettings(){
     const s=state.settings;document.body.classList.toggle("high-contrast",!!s.highContrast);document.body.classList.toggle("dark-mode",!!s.darkMode);document.body.classList.toggle("dyslexia-font",!!s.dyslexiaFont);document.body.classList.toggle("low-data",!!s.lowData);document.body.classList.toggle("large-text",s.textSize==="large");document.body.classList.toggle("largest-text",s.textSize==="largest");
     $("#highContrast").checked=!!s.highContrast;$("#darkMode").checked=!!s.darkMode;$("#dyslexiaFont").checked=!!s.dyslexiaFont;$("#lowData").checked=!!s.lowData;$("#textSize").value=s.textSize||"normal";$("#extensionDays").value=s.extensionDays??2;$("#quietStart").value=s.quietStart||"21:00";$("#quietEnd").value=s.quietEnd||"07:00";$("#notifications").checked=!!s.notifications;
+    $("#taskReminderDays").value=String(s.taskReminderDays??1);$("#classReminderMinutes").value=String(s.classReminderMinutes??5);$("#weeklyFocusGoal").value=s.weeklyFocusGoal||150;$("#motivationEnabled").checked=!!s.motivationEnabled;$("#focusMinutes").value=s.focusMinutes||25;$("#breakMinutes").value=s.breakMinutes||5;
     $("#language").value=s.language||"en";document.documentElement.lang=s.language==="zu"?"zu":s.language==="af"?"af":"en";
     $$("[data-i18n]").forEach(el=>{const key=el.dataset.i18n;el.textContent=translations[s.language||"en"][key]||translations.en[key];});
   }
-  ["highContrast","darkMode","dyslexiaFont","lowData","textSize","language","extensionDays","quietStart","quietEnd","notifications"].forEach(id=>$("#"+id).addEventListener("change",async e=>{const key=id==="highContrast"?"highContrast":id==="darkMode"?"darkMode":id==="dyslexiaFont"?"dyslexiaFont":id==="lowData"?"lowData":id==="textSize"?"textSize":id==="language"?"language":id==="extensionDays"?"extensionDays":id==="quietStart"?"quietStart":id==="quietEnd"?"quietEnd":"notifications";state.settings[key]=e.target.type==="checkbox"?e.target.checked:e.target.type==="number"?Math.max(0,Math.min(30,Number(e.target.value)||0)):e.target.value;applySettings();await saveState();}));
+  ["highContrast","darkMode","dyslexiaFont","lowData","textSize","language","extensionDays","quietStart","quietEnd","notifications","taskReminderDays","classReminderMinutes","weeklyFocusGoal","motivationEnabled","focusMinutes","breakMinutes"].forEach(id=>$("#"+id).addEventListener("change",async e=>{
+    const key=id;let value=e.target.type==="checkbox"?e.target.checked:e.target.type==="number"?Number(e.target.value):e.target.value;
+    if(id==="extensionDays")value=Math.max(0,Math.min(30,Number(value)||0));
+    if(id==="weeklyFocusGoal")value=Math.max(15,Math.min(1200,Number(value)||150));
+    if(id==="focusMinutes")value=Math.max(1,Math.min(90,Number(value)||25));
+    if(id==="breakMinutes")value=Math.max(1,Math.min(30,Number(value)||5));
+    state.settings[key]=value;applySettings();await saveState();
+    if(id==="notifications"&&e.target.checked){
+      if(!("Notification"in window)){state.settings.notifications=false;e.target.checked=false;toast("Browser notifications are not supported here. In-app reminders remain available.");await saveState();}
+      else if(Notification.permission==="default"){
+        const permission=await Notification.requestPermission();
+        if(permission!=="granted"){state.settings.notifications=false;e.target.checked=false;toast("Notification permission was not granted. In-app reminders remain available.");await saveState();}
+      }else if(Notification.permission!=="granted"){state.settings.notifications=false;e.target.checked=false;toast("Notifications are blocked in browser settings. In-app reminders remain available.");await saveState();}
+      else sendDeadlineNotifications();
+    }
+    if(id==="weeklyFocusGoal"||id==="motivationEnabled")renderSummary();
+  }));
+  $("#packSearch").addEventListener("input",renderPacks);
+  $("#packSubjectFilter").addEventListener("change",renderPacks);
+  $("#packDateFilter").addEventListener("change",renderPacks);
   $("#wellbeingForm").addEventListener("submit",async e=>{e.preventDefault();state.wellbeing.push({date:todayISO(),level:Number($("#overwhelm").value)});await saveState();$("#wellbeingMessage").textContent="Thank you for checking in. If things feel too much, consider speaking with someone you trust.";});
   $("#saveContacts").addEventListener("click",async()=>{state.settings.counsellor=safe($("#counsellorLink").value);state.settings.tutor=safe($("#tutorLink").value);await saveState();toast("Support contacts saved on this device.");});
   $("#teacherToggle").addEventListener("click",()=>{$("#teacherPanel").hidden=!$("#teacherPanel").hidden;});
   $("#teacherForm").addEventListener("submit",async e=>{e.preventDefault();const fd=new FormData(e.currentTarget),kind=fd.get("kind"),title=safe(fd.get("title")),subject=safe(fd.get("subject")),date=fd.get("date");if(!title||!subject||!date){toast("Complete all required fields.");return;}if(kind==="task")state.tasks.push({id:uid(),title,subject,dueDate:date,weight:"medium",effort:"",notes:safe(fd.get("notes")),status:"todo",milestones:[]});else state.classes.push({id:uid(),title,subject,date,kind:"class",notes:safe(fd.get("notes"))});await saveState();renderAll();toast("Entry added.");e.currentTarget.reset();});
-  function downloadJSON(data,name){const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"}),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=name;a.click();URL.revokeObjectURL(url);}
-  $("#exportData").addEventListener("click",()=>downloadJSON({format:"next-up-backup",version:1,exportedAt:new Date().toISOString(),state},"next-up-backup.json"));
+  function downloadJSON(data,name){const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"}),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+  $("#exportData").addEventListener("click",async()=>{state.lastBackupAt=new Date().toISOString();await saveState();downloadJSON({format:"next-up-backup",version:1,exportedAt:state.lastBackupAt,state},"next-up-backup.json");renderBackupReminder();toast("Backup exported. Store it somewhere safe.");});
   $("#exportTeacher").addEventListener("click",()=>downloadJSON({format:"next-up-teacher-pack",version:1,tasks:state.tasks,classes:state.classes},"next-up-teacher-pack.json"));
-  $("#importData").addEventListener("change",async e=>{const file=e.target.files[0];if(!file)return;try{const parsed=JSON.parse(await file.text());if(parsed.format==="next-up-backup"&&parsed.state){if(!confirm("Replace the data on this device with this backup? Export your current data first if you want to keep it."))return;Object.assign(state,parsed.state);}else if(parsed.format==="next-up-teacher-pack"){(parsed.tasks||[]).forEach(t=>state.tasks.push({...t,id:uid()}));(parsed.classes||[]).forEach(c=>state.classes.push({...c,id:uid()}));}else throw new Error("This file is not a Next Up backup or teacher pack.");await saveState();applySettings();renderAll();renderPlans();toast("Import complete.");}catch(err){toast(`Import failed: ${err.message}`);}finally{e.target.value="";}});
+  $("#importData").addEventListener("change",async e=>{const file=e.target.files[0];if(!file)return;try{const parsed=JSON.parse(await file.text());if(parsed.format==="next-up-backup"&&parsed.state){if(!confirm("Replace the data on this device with this backup? Export your current data first if you want to keep it."))return;Object.assign(state,parsed.state);state.settings={...DEFAULT_SETTINGS,...(state.settings||{})};state.tasks=Array.isArray(state.tasks)?state.tasks:[];state.packs=Array.isArray(state.packs)?state.packs:[];state.classes=Array.isArray(state.classes)?state.classes:[];state.plans=Array.isArray(state.plans)?state.plans:[];state.videos=Array.isArray(state.videos)?state.videos:[];state.focusLogs=Array.isArray(state.focusLogs)?state.focusLogs:[];}else if(parsed.format==="next-up-teacher-pack"){(parsed.tasks||[]).forEach(t=>state.tasks.push({...t,id:uid()}));(parsed.classes||[]).forEach(c=>state.classes.push({...c,id:uid()}));}else throw new Error("This file is not a Next Up backup or teacher pack.");await saveState();applySettings();resetTimerFromSettings();renderAll();renderPlans();toast("Import complete.");}catch(err){toast(`Import failed: ${err.message}`);}finally{e.target.value="";}});
   // Notification permission is opt-in. In-app reminders remain available regardless.
   async function sendDeadlineNotifications(){
     if(!("Notification" in window)||Notification.permission!=="granted"||!state.settings.notifications)return;
     const now=new Date(),today=todayISO(),quiet=state.settings.quietStart||"21:00",end=state.settings.quietEnd||"07:00",clock=now.toTimeString().slice(0,5);
     const inQuiet=quiet>end?(clock>=quiet||clock<end):(clock>=quiet&&clock<end);if(inQuiet)return;
     const sent=JSON.parse(localStorage.getItem("nextUpNotified")||"{}");
+    const reminderDays=Number(state.settings.taskReminderDays??1);
     state.tasks.filter(t=>t.status!=="done"&&t.dueDate).forEach(t=>{
       const days=Math.round((new Date(`${t.dueDate}T12:00:00`)-new Date(`${today}T12:00:00`))/86400000);
-      if([7,2,0].includes(days)){const key=`${t.id}-${days}-${today}`;if(!sent[key]){new Notification(`Next Up: ${t.title}`,{body:days===0?"Due today":`Due in ${days} days · ${t.subject}`});sent[key]=true;}}
+      if([reminderDays,0].includes(days)){const key=`${t.id}-${days}-${today}`;if(!sent[key]){new Notification(`Next Up: ${t.title}`,{body:days===0?"Due today":`Due in ${days} day${days===1?"":"s"} · ${t.subject}`});sent[key]=true;}}
+    });
+    const reminderMinutes=Number(state.settings.classReminderMinutes??5),weekday=now.getDay();
+    state.classes.filter(item=>item.kind!=="missed"&&item.time&&(/^\d{2}:\d{2}$/.test(item.time))&&(item.date===today||item.recurring&&item.daysOfWeek?.includes(weekday))).forEach(item=>{
+      const start=new Date(`${today}T${item.time}:00`),millisecondsUntil=start.getTime()-now.getTime();
+      const eligible=reminderMinutes===0?millisecondsUntil>=0&&millisecondsUntil<60000:millisecondsUntil>0&&millisecondsUntil<=reminderMinutes*60000;
+      const key=`class-${item.id}-${today}`;
+      if(eligible&&!sent[key]){new Notification(`Class starting soon: ${item.title}`,{body:`${item.subject} · ${item.time}`});sent[key]=true;}
     });
     localStorage.setItem("nextUpNotified",JSON.stringify(sent));
   }
-  $("#notifications").addEventListener("change",async e=>{if(e.target.checked&&"Notification"in window){const permission=await Notification.requestPermission();if(permission!=="granted"){state.settings.notifications=false;e.target.checked=false;toast("Notifications were not allowed. In-app reminders will still appear.");await saveState();}}});
   // PWA install prompt.
   window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();installPrompt=e;$("#installBtn").hidden=false;});
   $("#installBtn").addEventListener("click",async()=>{if(!installPrompt)return;installPrompt.prompt();await installPrompt.userChoice;installPrompt=null;$("#installBtn").hidden=true;});
@@ -447,9 +618,10 @@
   async function init(){
     await authReady;
     $("#todayLabel").textContent=new Date().toLocaleDateString(undefined,{weekday:"long",day:"numeric",month:"long"}).toUpperCase();
-    await loadState();applySettings();renderAll();renderPlans();
+    await loadState();applySettings();resetTimerFromSettings();renderAll();renderPlans();
     $("#counsellorLink").value=state.settings.counsellor||"";$("#tutorLink").value=state.settings.tutor||"";
     sendDeadlineNotifications();
+    window.setInterval(sendDeadlineNotifications,60000);
   }
   init().catch(()=>toast("Next Up could not start fully. Please reload the page."));
 })();
